@@ -1,0 +1,67 @@
+---
+format:
+  html:
+    page-layout: custom
+---
+
+```{r}
+#| echo = FALSE
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE
+)
+```
+
+```{r}
+jsonlite::fromJSON("https://epiverse-connect.r-universe.dev/api/packages/") |>
+  dplyr::filter(`_registered`) -> df_epiverse
+
+library(dplyr)
+
+edgelist_epiverse <- df_epiverse |>
+  dplyr::select(Package, `_dependencies`) |>
+  tidyr::unnest(`_dependencies`) |>
+  dplyr::select("focal" = 1, "dep" = 2) |>
+  dplyr::distinct() |>
+  dplyr::add_row(focal = df_epiverse$Package, dep = df_epiverse$Package) |>
+  as.data.frame()
+
+pkgs <- ctv::ctv("Epidemiology", repos = "https://cloud.r-project.org/")$packagelist$name
+
+df_ctv <- pkgsearch::cran_packages(pkgs)
+
+edgelist_ctv <- df_ctv |>
+  dplyr::select(Package, dependencies) |>
+  tidyr::unnest(dependencies) |>
+  dplyr::select("focal" = 1, "dep" = 3) |>
+  dplyr::add_row(focal = pkgs, dep = pkgs) |>
+  as.data.frame()
+
+edgelist <- rbind(edgelist_ctv, edgelist_epiverse) |>
+  dplyr::filter(dep %in% focal)
+
+library(igraph)
+library(networkD3)
+
+nodes <- data.frame(
+  name = as.factor(unique(unlist(edgelist)))
+) |>
+  dplyr::mutate(group = as.numeric(name %in% df_epiverse$Package)) |>
+  dplyr::arrange(name)
+
+links <- edgelist |>
+  dplyr::transmute(
+    source = as.integer(factor(focal, levels = levels(nodes$name))) - 1,
+    target = as.integer(factor(dep,   levels = levels(nodes$name))) - 1
+  )
+
+forceNetwork(Links = links, Nodes = nodes,
+             Source = "source", Target = "target",
+             NodeID = "name", Group = "group",
+             zoom = TRUE,
+             opacityNoHover = 0.8, opacity = 1,
+             colourScale = JS("d3.scaleOrdinal([`#999999`, `#EE3388`])"),
+             fontSize = 15,
+             linkDistance = 20,
+             clickAction = "$('.slickR').slick('slickGoTo', 4);")
+```
